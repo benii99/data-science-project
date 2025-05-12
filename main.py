@@ -1,7 +1,9 @@
 from config import LOCATIONS, POLLUTANTS
 from data_fetcher import get_historical_data
 from data_processor import process_air_quality_data
-from models import temporal_pattern_analysis, spatial_comparison_analysis, sarima_modeling
+from models.temporal_analysis import temporal_pattern_analysis
+from models.spatial_analysis import spatial_comparison_analysis
+from models.sarima_analysis import sarima_modeling
 
 def main():
     """Main function to execute the AirSense Copenhagen workflow."""
