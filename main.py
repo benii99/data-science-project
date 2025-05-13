@@ -35,6 +35,10 @@ def main():
         
         # Get the date range from the data
         if name == hcab_location and len(df) > 0:
+            # Ensure AQI data is sorted chronologically for consistent handling
+            df = df.sort_values(by='time', ascending=True)
+            processed_dfs[name] = df  # Save the sorted dataframe
+            
             aqi_start_date = df['time'].min().strftime('%Y-%m-%d')
             aqi_end_date = df['time'].max().strftime('%Y-%m-%d')
             print(f"AQI data spans: {aqi_start_date} to {aqi_end_date}")
@@ -52,6 +56,9 @@ def main():
     if df_weather is not None:
         print(f"Retrieved {len(df_weather)} weather records for {hcab_location}")
         
+        # Ensure weather data is sorted chronologically
+        df_weather = df_weather.sort_values(by='time', ascending=True)
+        
         # Check for duplicate timestamps in weather data
         duplicate_count = df_weather.duplicated(subset=['time']).sum()
         if duplicate_count > 0:
@@ -61,7 +68,7 @@ def main():
             print(f"After removing duplicates: {len(df_weather)} weather records")
         
         # Display first 5 rows of weather data
-        print("\nFirst 5 rows of weather data:")
+        print("\nFirst 5 rows of weather data (chronological order):")
         print(df_weather.head())
         
         # Check for any missing values
@@ -69,6 +76,27 @@ def main():
         if any(missing_vals > 0):
             print("\nMissing values in weather data:")
             print(missing_vals[missing_vals > 0])
+            
+            # Fill missing weather values with interpolation
+            print("Filling missing values with interpolation...")
+            
+            # Set the time column as index for time-based interpolation
+            df_weather = df_weather.set_index('time')
+            
+            # Perform interpolation on each column
+            for col in df_weather.columns:
+                df_weather[col] = df_weather[col].interpolate(method='time')
+            
+            # Reset index to get time column back as a regular column
+            df_weather = df_weather.reset_index()
+            
+            # Check if any NaNs remain after interpolation
+            missing_after = df_weather.isna().sum()
+            if any(missing_after > 0):
+                print("Values still missing after interpolation (will use ffill/bfill):")
+                print(missing_after[missing_after > 0])
+                # Forward and backward fill for any remaining NaNs
+                df_weather = df_weather.ffill().bfill()
         else:
             print("\nNo missing values in weather data")
         
@@ -83,8 +111,10 @@ def main():
     merged_dfs = {}
     
     if hcab_location in processed_dfs:
-        # Check for duplicate timestamps in AQI data
+        # Reference the sorted AQI data
         aqi_df = processed_dfs[hcab_location]
+        
+        # Check for duplicate timestamps in AQI data
         duplicate_count = aqi_df.duplicated(subset=['time']).sum()
         if duplicate_count > 0:
             print(f"WARNING: Found {duplicate_count} duplicate timestamps in AQI data")
@@ -94,6 +124,10 @@ def main():
         
         # Show AQI data date range
         print(f"AQI data time range: {aqi_df['time'].min()} to {aqi_df['time'].max()}")
+        
+        # Verify that timestamps are in the same format
+        print(f"AQI timestamp format example: {aqi_df['time'].iloc[0]}")
+        print(f"Weather timestamp format example: {df_weather['time'].iloc[0]}")
         
         # Check for overlap in date ranges
         aqi_start = aqi_df['time'].min()
@@ -110,7 +144,7 @@ def main():
             overlap_end = min(aqi_end, weather_end)
             print(f"Data overlap period: {overlap_start} to {overlap_end}")
         
-        # Merge on timestamp
+        # Merge on timestamp - both datasets are now in chronological order
         merged_df = pd.merge(
             aqi_df,
             df_weather,
@@ -121,11 +155,14 @@ def main():
         # Check merge results
         merge_count = len(merged_df)
         if merge_count > 0:
+            # Sort the merged data by time for consistent handling
+            merged_df = merged_df.sort_values(by='time', ascending=True)
+            
             print(f"Successfully merged data with {merge_count} matching timestamps")
             print(f"Merged data shape: {merged_df.shape}")
             
             # Display first 5 rows of merged data
-            print("\nFirst 5 rows of merged data (AQI + weather):")
+            print("\nFirst 5 rows of merged data (chronological order):")
             weather_cols = [col for col in WEATHER_VARIABLES if col in merged_df.columns]
             if len(weather_cols) > 3:
                 display_weather_cols = weather_cols[:3]  # Limit to first 3 weather variables
@@ -134,30 +171,16 @@ def main():
             columns_to_show = ['time', 'AQI', 'AQI_Category'] + display_weather_cols
             print(merged_df[columns_to_show].head())
             
-            # Check for NaN values in critical columns and handle them
+            # Check for NaN values in critical columns
             nan_check = merged_df[['AQI'] + weather_cols].isna().sum()
             if any(nan_check > 0):
                 print("\nWarning: Merged data contains NaN values:")
                 print(nan_check[nan_check > 0])
                 
-                # Impute missing weather values
-                for col in weather_cols:
-                    if merged_df[col].isna().sum() > 0:
-                        # Use forward and backward fill to handle missing values
-                        merged_df[col] = merged_df[col].ffill().bfill()
-                
-                # Check if any NaNs remain after imputation
-                nan_check_after = merged_df[['AQI'] + weather_cols].isna().sum()
-                if any(nan_check_after > 0):
-                    print("NaN values after imputation:")
-                    print(nan_check_after[nan_check_after > 0])
-                    # If NaNs remain, remove rows with NaNs in critical columns
-                    merged_df = merged_df.dropna(subset=['AQI'] + weather_cols)
-                    print(f"After removing rows with NaNs: {len(merged_df)} records")
+                merged_dfs[hcab_location] = merged_df
             else:
                 print("\nMerged data has no NaN values in critical columns")
-            
-            merged_dfs[hcab_location] = merged_df
+                merged_dfs[hcab_location] = merged_df
         else:
             print("ERROR: Merge resulted in 0 matching rows - no overlapping timestamps!")
             print("Check that your AQI and weather data cover the same time period.")
