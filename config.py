@@ -25,3 +25,16 @@ NO2_CONVERSION_FACTOR = 1.88  # 1 ppb = 1.88 μg/m³
 SO2_CONVERSION_FACTOR = 2.62  # 1 ppb = 2.62 μg/m³
 CO_CONVERSION_FACTOR = 1145   # 1 ppm = 1145 μg/m³
 O3_CONVERSION_FACTOR = 2000   # 1 ppm = 2000 μg/m³
+
+# Weather API URL
+WEATHER_API_URL = "https://archive-api.open-meteo.com/v1/archive"
+
+# Weather variables to retrieve (selected based on air quality relevance)
+WEATHER_VARIABLES = [
+    "temperature_2m",
+    "relative_humidity_2m",
+    "precipitation",
+    "windspeed_10m",
+    "wind_direction_10m",
+    "pressure_msl"
+]
