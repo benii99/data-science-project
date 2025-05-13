@@ -187,14 +187,14 @@ def main():
             return None
     
     # Other analysis modules - currently commented out
-    # print("\nPerforming temporal pattern analysis...")
-    # temporal_pattern_analysis(processed_dfs)
+    print("\nPerforming temporal pattern analysis...")
+    temporal_pattern_analysis(processed_dfs)
     
-    # print("\nPerforming spatial comparison analysis...")
-    # spatial_comparison_analysis(processed_dfs)
+    print("\nPerforming spatial comparison analysis...")
+    spatial_comparison_analysis(processed_dfs)
     
-    # print("\nPerforming SARIMA modeling and forecasting...")
-    # sarima_modeling(processed_dfs)
+    print("\nPerforming SARIMA modeling and forecasting...")
+    sarima_modeling(processed_dfs)
     
     # Weather and AQI correlation analysis and MLR modeling
     if hcab_location in merged_dfs and len(merged_dfs[hcab_location]) >= 100:
