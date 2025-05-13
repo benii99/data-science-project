@@ -23,29 +23,42 @@ def main():
     print("\nCalculating Air Quality Index values")
     processed_dfs = process_air_quality_data(location_dfs)
     
-    # Display first 5 rows for each dataframe with AQI and determine year
-    target_year = None
+    # Display first 5 rows for each dataframe with AQI and determine date range
     hcab_location = "H.C. Andersens Boulevard"
+    aqi_start_date = None
+    aqi_end_date = None
     
     for name, df in processed_dfs.items():
         print(f"\nFirst 5 rows of processed AQI data for {name}:")
         display_columns = ['time', 'AQI', 'AQI_Category', 'Dominant_Pollutant']
         print(df[display_columns].head())
         
-        # Get the year from the first timestamp to align data
+        # Get the date range from the data
         if name == hcab_location and len(df) > 0:
-            target_year = df['time'].iloc[0].year
-            print(f"Detected AQI data year: {target_year}")
+            aqi_start_date = df['time'].min().strftime('%Y-%m-%d')
+            aqi_end_date = df['time'].max().strftime('%Y-%m-%d')
+            print(f"AQI data spans: {aqi_start_date} to {aqi_end_date}")
     
     # Fetch historical weather data ONLY for H.C. Andersens Boulevard
     print(f"\nFetching weather data for {hcab_location} only")
     latitude, longitude = LOCATIONS[hcab_location]
     
-    # Get one year of weather data and adjust to match AQI data year
-    df_weather = fetch_weather_data(latitude, longitude, adjust_year=target_year)
+    # Use the EXACT same date range as AQI data
+    print(f"Using the exact same date range as AQI data: {aqi_start_date} to {aqi_end_date}")
+    df_weather = fetch_weather_data(latitude, longitude, 
+                                   start_date=aqi_start_date, 
+                                   end_date=aqi_end_date)
     
     if df_weather is not None:
         print(f"Retrieved {len(df_weather)} weather records for {hcab_location}")
+        
+        # Check for duplicate timestamps in weather data
+        duplicate_count = df_weather.duplicated(subset=['time']).sum()
+        if duplicate_count > 0:
+            print(f"WARNING: Found {duplicate_count} duplicate timestamps in weather data")
+            # Remove duplicates, keeping first occurrence
+            df_weather = df_weather.drop_duplicates(subset=['time'], keep='first')
+            print(f"After removing duplicates: {len(df_weather)} weather records")
         
         # Display first 5 rows of weather data
         print("\nFirst 5 rows of weather data:")
@@ -70,8 +83,16 @@ def main():
     merged_dfs = {}
     
     if hcab_location in processed_dfs:
-        # Show AQI data date range
+        # Check for duplicate timestamps in AQI data
         aqi_df = processed_dfs[hcab_location]
+        duplicate_count = aqi_df.duplicated(subset=['time']).sum()
+        if duplicate_count > 0:
+            print(f"WARNING: Found {duplicate_count} duplicate timestamps in AQI data")
+            # Remove duplicates, keeping first occurrence
+            aqi_df = aqi_df.drop_duplicates(subset=['time'], keep='first')
+            print(f"After removing duplicates: {len(aqi_df)} AQI records")
+        
+        # Show AQI data date range
         print(f"AQI data time range: {aqi_df['time'].min()} to {aqi_df['time'].max()}")
         
         # Check for overlap in date ranges
@@ -90,41 +111,59 @@ def main():
             print(f"Data overlap period: {overlap_start} to {overlap_end}")
         
         # Merge on timestamp
-        merged_dfs[hcab_location] = pd.merge(
-            processed_dfs[hcab_location],
+        merged_df = pd.merge(
+            aqi_df,
             df_weather,
             on='time',
             how='inner'
         )
         
         # Check merge results
-        merge_count = len(merged_dfs[hcab_location])
+        merge_count = len(merged_df)
         if merge_count > 0:
             print(f"Successfully merged data with {merge_count} matching timestamps")
-            print(f"Merged data shape: {merged_dfs[hcab_location].shape}")
+            print(f"Merged data shape: {merged_df.shape}")
             
             # Display first 5 rows of merged data
             print("\nFirst 5 rows of merged data (AQI + weather):")
-            weather_cols = [col for col in WEATHER_VARIABLES if col in merged_dfs[hcab_location].columns]
+            weather_cols = [col for col in WEATHER_VARIABLES if col in merged_df.columns]
             if len(weather_cols) > 3:
-                weather_cols = weather_cols[:3]  # Limit to first 3 weather variables
-            columns_to_show = ['time', 'AQI', 'AQI_Category'] + weather_cols
-            print(merged_dfs[hcab_location][columns_to_show].head())
+                display_weather_cols = weather_cols[:3]  # Limit to first 3 weather variables
+            else:
+                display_weather_cols = weather_cols
+            columns_to_show = ['time', 'AQI', 'AQI_Category'] + display_weather_cols
+            print(merged_df[columns_to_show].head())
             
-            # Verify data doesn't have NaNs in critical columns
-            nan_check = merged_dfs[hcab_location][['AQI'] + weather_cols].isna().sum()
+            # Check for NaN values in critical columns and handle them
+            nan_check = merged_df[['AQI'] + weather_cols].isna().sum()
             if any(nan_check > 0):
                 print("\nWarning: Merged data contains NaN values:")
                 print(nan_check[nan_check > 0])
+                
+                # Impute missing weather values
+                for col in weather_cols:
+                    if merged_df[col].isna().sum() > 0:
+                        # Use forward and backward fill to handle missing values
+                        merged_df[col] = merged_df[col].ffill().bfill()
+                
+                # Check if any NaNs remain after imputation
+                nan_check_after = merged_df[['AQI'] + weather_cols].isna().sum()
+                if any(nan_check_after > 0):
+                    print("NaN values after imputation:")
+                    print(nan_check_after[nan_check_after > 0])
+                    # If NaNs remain, remove rows with NaNs in critical columns
+                    merged_df = merged_df.dropna(subset=['AQI'] + weather_cols)
+                    print(f"After removing rows with NaNs: {len(merged_df)} records")
             else:
                 print("\nMerged data has no NaN values in critical columns")
+            
+            merged_dfs[hcab_location] = merged_df
         else:
             print("ERROR: Merge resulted in 0 matching rows - no overlapping timestamps!")
             print("Check that your AQI and weather data cover the same time period.")
             return None
     
-    # Comment out other analyses for debugging
-    # Execute modeling and analysis tasks
+    # Other analysis modules - currently commented out
     # print("\nPerforming temporal pattern analysis...")
     # temporal_pattern_analysis(processed_dfs)
     
@@ -135,7 +174,7 @@ def main():
     # sarima_modeling(processed_dfs)
     
     # Weather and AQI correlation analysis and MLR modeling
-    if hcab_location in merged_dfs and len(merged_dfs[hcab_location]) > 0:
+    if hcab_location in merged_dfs and len(merged_dfs[hcab_location]) >= 100:
         print("\nPerforming weather-AQI correlation analysis...")
         corr, lag_corrs = correlation_analysis(merged_dfs[hcab_location], 
                                              output_dir="figures/weather_aqi")
@@ -156,6 +195,24 @@ def main():
                 print("Failed to build MLR model")
         else:
             print("Failed to perform correlation analysis")
+    elif hcab_location in merged_dfs:
+        print(f"\nWARNING: Only {len(merged_dfs[hcab_location])} data points available.")
+        print("Insufficient data for reliable statistical analysis.")
+        if len(merged_dfs[hcab_location]) > 0:
+            print("Will proceed with limited data, but results may not be statistically valid.")
+            
+            print("\nPerforming weather-AQI correlation analysis with limited data...")
+            corr, lag_corrs = correlation_analysis(merged_dfs[hcab_location], 
+                                                output_dir="figures/weather_aqi")
+            
+            print("\nBuilding multiple linear regression model with limited data...")
+            model, rmse, r2, coef_df = multiple_linear_regression(merged_dfs[hcab_location], 
+                                                              output_dir="figures/weather_aqi")
+            if model is not None:
+                print(f"\nWeather-AQI MLR Results (CAUTION - limited data):")
+                print(f"RMSE: {rmse:.2f}, R²: {r2:.2f}")
+                print("\nWeather variable importance:")
+                print(coef_df)
     else:
         print("No valid merged data available for weather-AQI analysis")
     

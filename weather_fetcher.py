@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from config import WEATHER_API_URL, WEATHER_VARIABLES, DEFAULT_HISTORY_DAYS
 
-def fetch_weather_data(latitude, longitude, start_date=None, end_date=None, timezone="auto", adjust_year=None):
+def fetch_weather_data(latitude, longitude, start_date=None, end_date=None, timezone="auto"):
     """
     Fetch historical weather data from Open-Meteo API.
     
@@ -11,7 +11,6 @@ def fetch_weather_data(latitude, longitude, start_date=None, end_date=None, time
     latitude, longitude: Location coordinates
     start_date, end_date: Date range in YYYY-MM-DD format (if None, uses DEFAULT_HISTORY_DAYS)
     timezone: Timezone for the data (default: "auto")
-    adjust_year: If provided, adjusts dates to the specified year (for aligning datasets)
     
     Returns:
     DataFrame with hourly weather data
@@ -23,30 +22,54 @@ def fetch_weather_data(latitude, longitude, start_date=None, end_date=None, time
     
     print(f"Requesting weather data from {start_date} to {end_date}")
     
-    # Construct API URL
-    url = f"{WEATHER_API_URL}?latitude={latitude}&longitude={longitude}&start_date={start_date}&end_date={end_date}&hourly={','.join(WEATHER_VARIABLES)}&timezone={timezone}"
+    # API might have limitations on date range, so we'll break up the request by months
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
     
-    # Make the request
-    response = requests.get(url)
-    if not response.ok:
-        print(f"Error fetching weather data: {response.status_code}")
+    # Create empty dataframe to store all results
+    all_weather_data = pd.DataFrame()
+    
+    # Process in 3-month chunks (typical API limitation)
+    current_start = start_dt
+    while current_start < end_dt:
+        # Calculate chunk end (3 months later or end_dt, whichever comes first)
+        current_end = min(current_start + timedelta(days=90), end_dt)
+        
+        chunk_start = current_start.strftime("%Y-%m-%d")
+        chunk_end = current_end.strftime("%Y-%m-%d")
+        print(f"  Fetching chunk: {chunk_start} to {chunk_end}")
+        
+        # Construct API URL for this chunk
+        url = f"{WEATHER_API_URL}?latitude={latitude}&longitude={longitude}&start_date={chunk_start}&end_date={chunk_end}&hourly={','.join(WEATHER_VARIABLES)}&timezone={timezone}"
+        
+        # Make the request
+        response = requests.get(url)
+        if not response.ok:
+            print(f"  Error fetching weather data for chunk: {response.status_code}")
+        else:
+            data = response.json()
+            hourly_data = data.get("hourly", {})
+            chunk_df = pd.DataFrame(hourly_data)
+            
+            if not chunk_df.empty and 'time' in chunk_df.columns:
+                chunk_df["time"] = pd.to_datetime(chunk_df["time"])
+                all_weather_data = pd.concat([all_weather_data, chunk_df])
+            
+        # Move to next chunk
+        current_start = current_end + timedelta(days=1)
+    
+    # Process the combined data
+    if all_weather_data.empty:
+        print("No weather data retrieved for the specified period")
         return None
     
-    data = response.json()
+    # Remove any duplicates that might have been created at chunk boundaries
+    all_weather_data = all_weather_data.drop_duplicates(subset=['time'])
     
-    # Convert to DataFrame
-    hourly_data = data.get("hourly", {})
-    df = pd.DataFrame(hourly_data)
+    # Sort by time to ensure chronological order
+    all_weather_data = all_weather_data.sort_values('time')
     
-    if not df.empty and 'time' in df.columns:
-        df["time"] = pd.to_datetime(df["time"])
-        
-        # Adjust year if specified (to align with other datasets)
-        if adjust_year is not None:
-            df["time"] = df["time"].apply(lambda x: x.replace(year=adjust_year))
-            print(f"Adjusted weather data years to {adjust_year}")
-    
-    return df
+    return all_weather_data
 
 def get_historical_weather(locations, days=None):
     """
