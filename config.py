@@ -35,6 +35,5 @@ WEATHER_VARIABLES = [
     "relative_humidity_2m",
     "precipitation",
     "windspeed_10m",
-    "wind_direction_10m",
     "pressure_msl"
 ]
