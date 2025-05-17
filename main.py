@@ -8,8 +8,10 @@ from models.sarima_analysis import sarima_modeling
 from models.weather_correlation_and_mlr import correlation_analysis, multiple_linear_regression
 from traffic_data_loader import (load_traffic_data, transform_traffic_data, 
                                find_location_near_hcab, get_traffic_for_date_range, aggregate_hourly_traffic)
+from models.traffic_aqi_analysis import traffic_aqi_correlation_analysis
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 from datetime import datetime
 
 def analyze_historical_2014_data():
@@ -83,31 +85,61 @@ def analyze_historical_2014_data():
             if len(merged_df) > 0:
                 print(merged_df[['time', 'traffic_count', 'AQI', 'Dominant_Pollutant']].head())
                 
-                # Analyze relationship between 2014 traffic and AQI
+                # Print data types to help with debugging
+                print("\nData types in merged dataframe:")
+                print(merged_df[['traffic_count', 'AQI']].dtypes)
+                
+                # Print summary statistics to verify data quality
+                print("\nTraffic count summary:")
+                print(merged_df['traffic_count'].describe())
+                print("\nAQI summary:")
+                print(merged_df['AQI'].describe())
+                
+                # NEW CODE: Perform traffic-AQI correlation analysis
+                print("\nPerforming traffic-AQI correlation analysis...")
+                from models.traffic_aqi_analysis import traffic_aqi_correlation_analysis
+                correlation_results = traffic_aqi_correlation_analysis(merged_df, output_dir="figures/traffic_aqi_2014")
+                
+                if correlation_results and 'pearson' in correlation_results:
+                    pearson_corr, pearson_p = correlation_results['pearson']
+                    if not np.isnan(pearson_corr):
+                        print(f"\nOverall Traffic-AQI Correlation: {pearson_corr:.4f} (p-value: {pearson_p:.4f})")
+                    else:
+                        print("\nCould not calculate correlation - check data for issues")
+                
+                # Analyze relationship between 2014 traffic and AQI with traffic variables only
                 if len(merged_df) >= 100:
-                    print("\nPerforming correlation analysis for 2014 data...")
-                    corr, lag_corrs = correlation_analysis(merged_df, 
-                                                        output_dir="figures/traffic_aqi_2014")
+                    print("\nBuilding traffic-AQI regression model for 2014...")
                     
-                    if corr is not None:
-                        print("\nBuilding traffic-AQI regression model for 2014...")
-                        # Select only relevant columns for modeling
-                        model_cols = ['traffic_count', 'entry_count'] + [col for col in merged_df.columns if col in WEATHER_VARIABLES]
-                        model_df = merged_df[['AQI'] + model_cols].dropna()
-                        
+                    # Use only traffic-related variables (not weather variables)
+                    traffic_cols = ['traffic_count']
+                    if 'entry_count' in merged_df.columns:
+                        traffic_cols.append('entry_count')
+                    
+                    # Prepare model dataframe with only traffic predictors
+                    model_df = merged_df[['AQI'] + traffic_cols].dropna()
+                    
+                    print(f"Using {len(model_df)} records with {len(traffic_cols)} traffic variables")
+                    
+                    # Only proceed if we have valid data
+                    if len(model_df) > 50:  # Minimum sample size for regression
                         model, rmse, r2, coef_df = multiple_linear_regression(model_df, 
                                                                           output_dir="figures/traffic_aqi_2014")
                         if model is not None:
                             print(f"\n2014 Traffic-AQI MLR Results:")
                             print(f"RMSE: {rmse:.2f}, R²: {r2:.2f}")
-                            print("\nVariable importance for 2014 data:")
+                            print("\nTraffic variable importance for 2014 data:")
                             print(coef_df)
+                    else:
+                        print(f"Insufficient valid data points ({len(model_df)}) for regression analysis")
             else:
                 print("No matching records found between 2014 traffic and air quality data")
         else:
             print(f"No air quality data processed for {closest_location_name}")
     
     print("\n2014 Historical analysis complete.")
+
+
     
 def main():
     """Main function to execute the AirSense Copenhagen workflow."""
