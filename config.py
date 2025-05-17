@@ -37,3 +37,7 @@ WEATHER_VARIABLES = [
     "windspeed_10m",
     "pressure_msl"
 ]
+
+# Traffic data settings
+TRAFFIC_DATA_FILE = "traffic_data_2014.xlsx"  
+TRAFFIC_YEAR = 2014  

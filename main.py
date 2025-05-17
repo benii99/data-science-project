@@ -6,6 +6,9 @@ from models.temporal_analysis import temporal_pattern_analysis
 from models.spatial_analysis import spatial_comparison_analysis
 from models.sarima_analysis import sarima_modeling
 from models.weather_correlation_and_mlr import correlation_analysis, multiple_linear_regression
+from traffic_data_loader import (load_traffic_data, transform_traffic_data, 
+                               find_location_near_hcab, get_traffic_for_date_range, aggregate_hourly_traffic)
+from config import TRAFFIC_DATA_FILE
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -186,15 +189,15 @@ def main():
             print("Check that your AQI and weather data cover the same time period.")
             return None
     
-    # Other analysis modules - currently commented out
-    print("\nPerforming temporal pattern analysis...")
-    temporal_pattern_analysis(processed_dfs)
+    # # Other analysis modules - currently commented out
+    # print("\nPerforming temporal pattern analysis...")
+    # temporal_pattern_analysis(processed_dfs)
     
-    print("\nPerforming spatial comparison analysis...")
-    spatial_comparison_analysis(processed_dfs)
+    # print("\nPerforming spatial comparison analysis...")
+    # spatial_comparison_analysis(processed_dfs)
     
-    print("\nPerforming SARIMA modeling and forecasting...")
-    sarima_modeling(processed_dfs)
+    # print("\nPerforming SARIMA modeling and forecasting...")
+    # sarima_modeling(processed_dfs)
     
     # Weather and AQI correlation analysis and MLR modeling
     if hcab_location in merged_dfs and len(merged_dfs[hcab_location]) >= 100:
@@ -238,6 +241,22 @@ def main():
                 print(coef_df)
     else:
         print("No valid merged data available for weather-AQI analysis")
+
+    # Load and transform traffic data
+    print("\nLoading and processing traffic data...")
+    raw_traffic_df = load_traffic_data(TRAFFIC_DATA_FILE)
+    processed_traffic_df = transform_traffic_data(raw_traffic_df)
+
+    if processed_traffic_df is not None:
+        # Aggregate the traffic data using "average times three" approach
+        print("\nAggregating hourly traffic data...")
+        aggregated_traffic = aggregate_hourly_traffic(processed_traffic_df)
+        
+        # Find closest location to H.C. Andersens Boulevard
+        closest_location_name, closest_location_df = find_location_near_hcab(aggregated_traffic)
+        
+        print("\nFirst 5 rows of aggregated traffic data for selected location:")
+        print(closest_location_df[['datetime', 'traffic_count', 'entry_count']].head())
     
     print("\nAnalysis complete. Results saved to figures/ directory.")
     
