@@ -1,4 +1,4 @@
-from config import LOCATIONS, POLLUTANTS, WEATHER_VARIABLES
+from config import LOCATIONS, POLLUTANTS, WEATHER_VARIABLES, TRAFFIC_DATA_FILE
 from data_fetcher import get_historical_data
 from weather_fetcher import fetch_weather_data
 from data_processor import process_air_quality_data
@@ -8,15 +8,118 @@ from models.sarima_analysis import sarima_modeling
 from models.weather_correlation_and_mlr import correlation_analysis, multiple_linear_regression
 from traffic_data_loader import (load_traffic_data, transform_traffic_data, 
                                find_location_near_hcab, get_traffic_for_date_range, aggregate_hourly_traffic)
-from config import TRAFFIC_DATA_FILE
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+def analyze_historical_2014_data():
+    """
+    Analyze historical 2014 traffic data with matching air quality data.
+    """
+    print("\n" + "="*80)
+    print("HISTORICAL ANALYSIS: 2014 TRAFFIC AND AIR QUALITY")
+    print("="*80)
+    
+    # Step 1: Load and process traffic data
+    print("\nLoading and processing 2014 traffic data...")
+    raw_traffic_df = load_traffic_data(TRAFFIC_DATA_FILE)
+    processed_traffic_df = transform_traffic_data(raw_traffic_df)
+    
+    if processed_traffic_df is not None:
+        # Step 2: Aggregate hourly traffic data
+        print("\nAggregating hourly traffic data...")
+        aggregated_traffic = aggregate_hourly_traffic(processed_traffic_df)
+        
+        # Step 3: Find location closest to H.C. Andersens Boulevard
+        closest_location_name, location_traffic_df = find_location_near_hcab(aggregated_traffic)
+        
+        print(f"\nUsing traffic data from {closest_location_name}")
+        location_coords = (
+            location_traffic_df['latitude'].iloc[0],
+            location_traffic_df['longitude'].iloc[0]
+        )
+        
+        # Step 4: Create date range for air quality data (from 2014)
+        min_date = location_traffic_df['datetime'].min().strftime('%Y-%m-%d')
+        max_date = location_traffic_df['datetime'].max().strftime('%Y-%m-%d')
+        print(f"Date range: {min_date} to {max_date}")
+        
+        # Step 5: Define the single location for air quality data
+        historical_location = {
+            closest_location_name: location_coords
+        }
+        
+        # Step 6: Fetch historical air quality data
+        print(f"\nFetching historical air quality data for {closest_location_name} in 2014...")
+        # Reusing the get_historical_data function with specific date range
+        air_quality_dfs = get_historical_data(historical_location, POLLUTANTS, 
+                                           start_date=min_date, end_date=max_date)
+        
+        # Step 7: Process air quality data to calculate AQI
+        print("\nCalculating Air Quality Index values for historical data...")
+        processed_aqi_dfs = process_air_quality_data(air_quality_dfs)
+        
+        # Get the AQI dataframe for our location
+        if closest_location_name in processed_aqi_dfs:
+            aqi_df = processed_aqi_dfs[closest_location_name]
+            
+            # Convert datetime to time if needed for merging
+            if 'datetime' in location_traffic_df.columns and 'time' in aqi_df.columns:
+                location_traffic_df = location_traffic_df.rename(columns={'datetime': 'time'})
+            
+            # Step 8: Merge traffic and AQI data
+            print("\nMerging historical traffic and air quality data...")
+            merged_df = pd.merge(
+                location_traffic_df,
+                aqi_df,
+                on='time',
+                how='inner'
+            )
+            
+            print(f"Successfully merged historical data: {len(merged_df)} records")
+            
+            # Display sample of merged data
+            print("\nSample of merged 2014 traffic and AQI data:")
+            if len(merged_df) > 0:
+                print(merged_df[['time', 'traffic_count', 'AQI', 'Dominant_Pollutant']].head())
+                
+                # Analyze relationship between 2014 traffic and AQI
+                if len(merged_df) >= 100:
+                    print("\nPerforming correlation analysis for 2014 data...")
+                    corr, lag_corrs = correlation_analysis(merged_df, 
+                                                        output_dir="figures/traffic_aqi_2014")
+                    
+                    if corr is not None:
+                        print("\nBuilding traffic-AQI regression model for 2014...")
+                        # Select only relevant columns for modeling
+                        model_cols = ['traffic_count', 'entry_count'] + [col for col in merged_df.columns if col in WEATHER_VARIABLES]
+                        model_df = merged_df[['AQI'] + model_cols].dropna()
+                        
+                        model, rmse, r2, coef_df = multiple_linear_regression(model_df, 
+                                                                          output_dir="figures/traffic_aqi_2014")
+                        if model is not None:
+                            print(f"\n2014 Traffic-AQI MLR Results:")
+                            print(f"RMSE: {rmse:.2f}, R²: {r2:.2f}")
+                            print("\nVariable importance for 2014 data:")
+                            print(coef_df)
+            else:
+                print("No matching records found between 2014 traffic and air quality data")
+        else:
+            print(f"No air quality data processed for {closest_location_name}")
+    
+    print("\n2014 Historical analysis complete.")
+    
 def main():
     """Main function to execute the AirSense Copenhagen workflow."""
     # Set matplotlib to auto-close figures to avoid warnings
     plt.rcParams['figure.max_open_warning'] = 50
+    
+    # First run the historical analysis with 2014 data
+    analyze_historical_2014_data()
+    
+    print("\n" + "="*80)
+    print("CURRENT DATA ANALYSIS")
+    print("="*80)
     
     # Fetch historical air quality data for all locations
     print("Starting AirSense Copenhagen data collection")
@@ -241,24 +344,8 @@ def main():
                 print(coef_df)
     else:
         print("No valid merged data available for weather-AQI analysis")
-
-    # Load and transform traffic data
-    print("\nLoading and processing traffic data...")
-    raw_traffic_df = load_traffic_data(TRAFFIC_DATA_FILE)
-    processed_traffic_df = transform_traffic_data(raw_traffic_df)
-
-    if processed_traffic_df is not None:
-        # Aggregate the traffic data using "average times three" approach
-        print("\nAggregating hourly traffic data...")
-        aggregated_traffic = aggregate_hourly_traffic(processed_traffic_df)
-        
-        # Find closest location to H.C. Andersens Boulevard
-        closest_location_name, closest_location_df = find_location_near_hcab(aggregated_traffic)
-        
-        print("\nFirst 5 rows of aggregated traffic data for selected location:")
-        print(closest_location_df[['datetime', 'traffic_count', 'entry_count']].head())
     
-    print("\nAnalysis complete. Results saved to figures/ directory.")
+    print("\nCurrent data analysis complete. Results saved to figures/ directory.")
     
     return merged_dfs
 
