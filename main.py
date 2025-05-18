@@ -28,10 +28,10 @@ from models.temporal_analysis import temporal_pattern_analysis
 from models.spatial_analysis import spatial_comparison_analysis
 from models.sarima_analysis import sarima_modeling
 from models.pollutant_weather_analysis import analyze_individual_pollutants
+from models.xgboost_model import xgboost_analysis
 
 # ----- Future model imports (currently commented) -----
 # from models.random_forest import random_forest_analysis  # To be implemented
-# from models.xgboost_model import xgboost_analysis  # To be implemented
 # from models.prophet_forecast import prophet_forecast  # To be implemented
 # from models.lstm_model import lstm_analysis  # To be implemented
 
@@ -297,12 +297,29 @@ def main():
     #                                   target_col='AQI',
     #                                   output_dir="figures/advanced_models")
     
-    # XGBoost placeholder
-    print("\nXGBoost modeling (placeholder)...")
-    # TODO: Implement XGBoost modeling
-    # xgb_results = xgboost_analysis(merged_dfs[primary_location],
-    #                               target_col='AQI',
-    #                               output_dir="figures/advanced_models")
+    # XGBoost modeling for current data
+    if primary_location in merged_dfs and len(merged_dfs[primary_location]) >= 100:
+        print("\nPerforming XGBoost modeling for ozone with current data...")
+        # Check if ozone is available in the dataset
+        if 'ozone' in merged_dfs[primary_location].columns:
+            current_xgb_results = xgboost_analysis(
+                merged_dfs[primary_location],
+                target_col='ozone',
+                include_traffic=False,  # No traffic data for current period
+                tune_hyperparams=True,
+                output_dir="figures/xgboost_current"
+            )
+            
+            if current_xgb_results is not None:
+                print(f"\nCurrent Data XGBoost Performance:")
+                print(f"R²: {current_xgb_results['metrics']['test_r2']:.4f}")
+                print(f"RMSE: {current_xgb_results['metrics']['test_rmse']:.2f}")
+                print("\nTop 3 influential features for ozone prediction:")
+                for i, (_, row) in enumerate(current_xgb_results['feature_importance'].iterrows()):
+                    if i < 3:
+                        print(f"  {row['Feature']}: {row['Importance']:.4f}")
+        else:
+            print("Ozone data not available for XGBoost modeling")
     
     # LSTM Neural Network placeholder
     print("\nLSTM Neural Network (placeholder)...")
@@ -392,75 +409,163 @@ def analyze_historical_2014_data():
         min_date = location_traffic_df['datetime'].min().strftime('%Y-%m-%d')
         max_date = location_traffic_df['datetime'].max().strftime('%Y-%m-%d')
         
+        print(f"Date range: {min_date} to {max_date}")
+        
         # Step 5: Define the single location for air quality data
         historical_location = {
             location_name: location_coords
         }
         
         # Step 6: Fetch historical air quality data
+        print(f"\nFetching historical air quality data for {location_name}...")
         air_quality_dfs = get_historical_data(historical_location, POLLUTANTS, 
                                            start_date=min_date, end_date=max_date)
         
         # Step 7: Process air quality data to calculate AQI
         processed_aqi_dfs = process_air_quality_data(air_quality_dfs)
         
-        # Get the AQI dataframe for our location
-        if location_name in processed_aqi_dfs:
-            aqi_df = processed_aqi_dfs[location_name]
+        # Step 8: Fetch historical weather data for the same period
+        print(f"\nFetching historical weather data for {location_name}...")
+        historical_weather = fetch_weather_data(
+            location_coords[0], 
+            location_coords[1],
+            start_date=min_date, 
+            end_date=max_date
+        )
+        
+        if historical_weather is not None:
+            # Handle potential data quality issues in weather data
+            historical_weather = historical_weather.sort_values(by='time', ascending=True)
             
-            # Convert datetime to time if needed for merging
-            if 'datetime' in location_traffic_df.columns and 'time' in aqi_df.columns:
-                location_traffic_df = location_traffic_df.rename(columns={'datetime': 'time'})
+            # Remove duplicate timestamps if any
+            duplicate_count = historical_weather.duplicated(subset=['time']).sum()
+            if duplicate_count > 0:
+                print(f"WARNING: Found {duplicate_count} duplicate timestamps in 2014 weather data")
+                historical_weather = historical_weather.drop_duplicates(subset=['time'], keep='first')
             
-            # Step 8: Merge traffic and AQI data
-            merged_df = pd.merge(
-                location_traffic_df,
-                aqi_df,
-                on='time',
-                how='inner'
-            )
-            
-            print(f"Successfully merged historical data: {len(merged_df)} records")
-            
-            if len(merged_df) > 0:
-                # Perform traffic-AQI correlation analysis
-                print("\nPerforming traffic-AQI correlation analysis...")
-                correlation_results = traffic_aqi_correlation_analysis(merged_df, output_dir="figures/traffic_aqi_2014")
+            # Handle missing values
+            missing_vals = historical_weather.isna().sum()
+            if any(missing_vals > 0):
+                print("\nMissing values in 2014 weather data:")
+                print(missing_vals[missing_vals > 0])
                 
-                if correlation_results and 'pearson' in correlation_results:
-                    pearson_corr, pearson_p = correlation_results['pearson']
-                    if not np.isnan(pearson_corr):
-                        print(f"\nOverall Traffic-AQI Correlation: {pearson_corr:.4f} (p-value: {pearson_p:.4f})")
+                # Use time-based interpolation
+                historical_weather = historical_weather.set_index('time')
+                for col in historical_weather.columns:
+                    historical_weather[col] = historical_weather[col].interpolate(method='time')
+                historical_weather = historical_weather.reset_index()
                 
-                # Perform traffic-pollutant correlation analysis
-                print("\nPerforming traffic-pollutant correlation analysis...")
-                pollutant_results = traffic_pollutant_correlation_analysis(merged_df, output_dir="figures/traffic_pollutants_2014")
+                # Handle any remaining NaNs
+                missing_after = historical_weather.isna().sum()
+                if any(missing_after > 0):
+                    print("Values still missing after interpolation (will use ffill/bfill):")
+                    print(missing_after[missing_after > 0])
+                    historical_weather = historical_weather.ffill().bfill()
+            
+            print(f"Retrieved {len(historical_weather)} weather records for {location_name} in 2014")
+            
+            # Get the AQI dataframe for our location
+            if location_name in processed_aqi_dfs:
+                aqi_df = processed_aqi_dfs[location_name]
                 
-                # Analyze relationship between 2014 traffic and AQI with traffic variables only
-                if len(merged_df) >= 100:
-                    print("\nBuilding traffic-AQI regression model for 2014...")
+                # Convert datetime to time if needed for merging
+                if 'datetime' in location_traffic_df.columns and 'time' in aqi_df.columns:
+                    location_traffic_df = location_traffic_df.rename(columns={'datetime': 'time'})
+                
+                # Step 9: First merge air quality and weather data
+                print("\nMerging air quality and weather data...")
+                weather_aqi_df = pd.merge(
+                    aqi_df,
+                    historical_weather,
+                    on='time',
+                    how='inner'
+                )
+                
+                weather_aqi_count = len(weather_aqi_df)
+                print(f"Successfully merged air quality and weather: {weather_aqi_count} records")
+                
+                # Step 10: Then merge with traffic data
+                print("\nMerging with traffic data...")
+                merged_df = pd.merge(
+                    location_traffic_df,
+                    weather_aqi_df,
+                    on='time',
+                    how='inner'
+                )
+                
+                print(f"Successfully merged historical data: {len(merged_df)} records")
+                
+                if len(merged_df) > 0:
+                    # Verify merged data has both weather and traffic columns
+                    weather_cols = [col for col in WEATHER_VARIABLES if col in merged_df.columns]
+                    print(f"Merged data contains {len(weather_cols)} weather variables and traffic_count")
                     
-                    # Use only traffic-related variables
-                    traffic_cols = ['traffic_count']
-                    if 'entry_count' in merged_df.columns:
-                        traffic_cols.append('entry_count')
+                    # Perform traffic-AQI correlation analysis
+                    print("\nPerforming traffic-AQI correlation analysis...")
+                    correlation_results = traffic_aqi_correlation_analysis(merged_df, output_dir="figures/traffic_aqi_2014")
                     
-                    # Prepare model dataframe
-                    model_df = merged_df[['AQI'] + traffic_cols].dropna()
+                    if correlation_results and 'pearson' in correlation_results:
+                        pearson_corr, pearson_p = correlation_results['pearson']
+                        if not np.isnan(pearson_corr):
+                            print(f"\nOverall Traffic-AQI Correlation: {pearson_corr:.4f} (p-value: {pearson_p:.4f})")
                     
-                    # Only proceed if we have valid data
-                    if len(model_df) > 50:
-                        model, rmse, r2, coef_df = multiple_linear_regression(model_df, 
-                                                                          output_dir="figures/traffic_aqi_2014")
-                        if model is not None:
-                            print(f"\n2014 Traffic-AQI MLR Results:")
-                            print(f"RMSE: {rmse:.2f}, R²: {r2:.2f}")
-                            print("\nTraffic variable importance for 2014 data:")
-                            print(coef_df)
+                    # Perform traffic-pollutant correlation analysis
+                    print("\nPerforming traffic-pollutant correlation analysis...")
+                    pollutant_results = traffic_pollutant_correlation_analysis(merged_df, output_dir="figures/traffic_pollutants_2014")
+                    
+                    # XGBoost modeling for ozone prediction using traffic AND weather data
+                    print("\nPerforming XGBoost modeling for ozone prediction with traffic and weather data...")
+                    if 'ozone' in merged_df.columns:
+                        # Collect weather and traffic features
+                        all_features = weather_cols + ['traffic_count']
+                            
+                        xgboost_results = xgboost_analysis(
+                            merged_df, 
+                            target_col='ozone',
+                            features=all_features,  # Explicitly specify both weather and traffic features
+                            include_traffic=True,   # Include traffic data as features
+                            tune_hyperparams=True,  # Tune model hyperparameters for best performance
+                            output_dir="figures/xgboost_2014"
+                        )
+
+                        if xgboost_results is not None:
+                            print(f"\nXGBoost Model Performance Summary:")
+                            print(f"R² on test data: {xgboost_results['metrics']['test_r2']:.4f}")
+                            print(f"RMSE on test data: {xgboost_results['metrics']['test_rmse']:.2f}")
+                            print("\nTop influential features:")
+                            for i, (_, row) in enumerate(xgboost_results['feature_importance'].iterrows()):
+                                if i < 5:  # Show top 5 features
+                                    print(f"  {row['Feature']}: {row['Importance']:.4f}")
+                    else:
+                        print("Ozone data not available in 2014 dataset for XGBoost modeling")
+                    
+                    # Analyze relationship between 2014 traffic and AQI with traffic variables only
+                    if len(merged_df) >= 100:
+                        print("\nBuilding traffic-AQI regression model for 2014...")
+                        
+                        # Use only traffic-related variables
+                        traffic_cols = ['traffic_count']
+                        if 'entry_count' in merged_df.columns:
+                            traffic_cols.append('entry_count')
+                        
+                        # Prepare model dataframe
+                        model_df = merged_df[['AQI'] + traffic_cols].dropna()
+                        
+                        # Only proceed if we have valid data
+                        if len(model_df) > 50:
+                            model, rmse, r2, coef_df = multiple_linear_regression(model_df, 
+                                                                              output_dir="figures/traffic_aqi_2014")
+                            if model is not None:
+                                print(f"\n2014 Traffic-AQI MLR Results:")
+                                print(f"RMSE: {rmse:.2f}, R²: {r2:.2f}")
+                                print("\nTraffic variable importance for 2014 data:")
+                                print(coef_df)
+                else:
+                    print("No matching records found between traffic, air quality, and weather data")
             else:
-                print("No matching records found between 2014 traffic and air quality data")
+                print(f"No air quality data processed for {location_name}")
         else:
-            print(f"No air quality data processed for {location_name}")
+            print(f"Failed to retrieve weather data for {location_name} in 2014")
     
     print("\n2014 Historical analysis complete.")
 
