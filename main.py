@@ -35,6 +35,135 @@ from models.xgboost_model import xgboost_analysis
 # from models.prophet_forecast import prophet_forecast  # To be implemented
 # from models.lstm_model import lstm_analysis  # To be implemented
 
+def compare_pollutant_models(merged_df, pollutant_list, include_traffic=True, historical=False, output_dir="figures/xgboost_comparison"):
+    """
+    Compare XGBoost models for each pollutant and AQI.
+    
+    Parameters:
+    merged_df: DataFrame containing pollutants, weather, and possibly traffic data
+    pollutant_list: List of pollutants to analyze
+    include_traffic: Whether to include traffic data as features
+    historical: Whether this is historical (2014) data
+    output_dir: Directory to save output files
+    
+    Returns:
+    DataFrame with model performance metrics for each pollutant
+    """
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Ensure pollutant_list is a list (not a comma-separated string)
+    if isinstance(pollutant_list, str):
+        pollutant_list = pollutant_list.split(',')
+    
+    # Add AQI to the list
+    pollutant_list = pollutant_list + ['AQI']
+    
+    # Get weather columns
+    weather_cols = [col for col in WEATHER_VARIABLES if col in merged_df.columns]
+    
+    # Get traffic columns if requested
+    traffic_cols = []
+    if include_traffic and 'traffic_count' in merged_df.columns:
+        traffic_cols = ['traffic_count']
+    
+    # Combined features
+    all_features = weather_cols + traffic_cols
+    
+    # Check if we have sufficient features
+    if len(all_features) < 2:
+        print("Error: Not enough features for modeling")
+        return None
+    
+    # Prepare results table
+    results = []
+    
+    for pollutant in pollutant_list:
+        if pollutant not in merged_df.columns:
+            print(f"Skipping {pollutant} - not found in dataset")
+            continue
+        
+        print(f"\n{'-' * 20}")
+        print(f"Processing {pollutant} model...")
+        
+        # Keep original data structure
+        output_subdir = f"{output_dir}/{'historical' if historical else 'current'}/{pollutant}"
+        
+        try:
+            # Run XGBoost for this pollutant
+            model_results = xgboost_analysis(
+                merged_df,
+                target_col=pollutant,
+                features=all_features,
+                include_traffic=include_traffic,
+                tune_hyperparams=True,
+                output_dir=output_subdir
+            )
+            
+            if model_results is not None:
+                # Extract performance metrics
+                test_r2 = model_results['metrics']['test_r2']
+                test_rmse = model_results['metrics']['test_rmse']
+                
+                # Get top features (top 3)
+                top_features = []
+                for i, (_, row) in enumerate(model_results['feature_importance'].iterrows()):
+                    if i < 3:
+                        top_features.append(f"{row['Feature']} ({row['Importance']:.3f})")
+                
+                # Add to results table
+                results.append({
+                    'Pollutant': pollutant,
+                    'Historical': historical,
+                    'R²': test_r2,
+                    'RMSE': test_rmse,
+                    'Top Features': ', '.join(top_features)
+                })
+        except Exception as e:
+            print(f"Error processing {pollutant}: {e}")
+    
+    if not results:
+        print("No valid models were created")
+        return None
+    
+    # Convert to DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # Save results
+    period = 'historical' if historical else 'current'
+    results_df.to_csv(f"{output_dir}/{period}_model_comparison.csv", index=False)
+    
+    # Print summary table
+    print(f"\n{'-' * 60}")
+    print(f"{'Historical' if historical else 'Current'} Period - XGBoost Model Comparison")
+    print(f"{'-' * 60}")
+    print(results_df[['Pollutant', 'R²', 'RMSE']].sort_values('R²', ascending=False))
+    
+    # Create visualization of R² values
+    plt.figure(figsize=(10, 6))
+    chart_df = results_df.sort_values('R²', ascending=False)
+    bars = plt.bar(chart_df['Pollutant'], chart_df['R²'])
+    
+    # Color the bars
+    for i, bar in enumerate(bars):
+        if chart_df['R²'].iloc[i] > 0.7:
+            bar.set_color('green')
+        elif chart_df['R²'].iloc[i] > 0.4:
+            bar.set_color('orange')
+        else:
+            bar.set_color('red')
+    
+    plt.axhline(y=0.5, color='black', linestyle='--', alpha=0.7)  # Reference line at R²=0.5
+    plt.title(f"XGBoost Performance (R²) by Pollutant - {'Historical' if historical else 'Current'} Period")
+    plt.ylabel('R² (Test Data)')
+    plt.ylim(0, 1)  # Set y-axis limits from 0 to 1
+    plt.xticks(rotation=45)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/{period}_r2_comparison.png", dpi=300)
+    
+    return results_df
+
 def main():
     """
     Main function to execute the AirSense Copenhagen workflow.
@@ -320,6 +449,16 @@ def main():
                         print(f"  {row['Feature']}: {row['Importance']:.4f}")
         else:
             print("Ozone data not available for XGBoost modeling")
+            
+        # NEW: Compare XGBoost models for all pollutants (current data)
+        print("\nComparing XGBoost models across all pollutants for current data...")
+        current_comparison = compare_pollutant_models(
+            merged_dfs[primary_location],
+            pollutant_list=POLLUTANTS,
+            include_traffic=False,  # No traffic data for current period
+            historical=False,
+            output_dir="figures/xgboost_comparison"
+        )
     
     # LSTM Neural Network placeholder
     print("\nLSTM Neural Network (placeholder)...")
@@ -539,14 +678,22 @@ def analyze_historical_2014_data():
                     else:
                         print("Ozone data not available in 2014 dataset for XGBoost modeling")
                     
+                    # NEW: Compare XGBoost models for all pollutants (historical 2014 data)
+                    print("\nComparing XGBoost models across all pollutants for 2014 data...")
+                    historical_comparison = compare_pollutant_models(
+                        merged_df,
+                        pollutant_list=POLLUTANTS,
+                        include_traffic=True,  # Include traffic data for 2014
+                        historical=True,
+                        output_dir="figures/xgboost_comparison"
+                    )
+                    
                     # Analyze relationship between 2014 traffic and AQI with traffic variables only
                     if len(merged_df) >= 100:
                         print("\nBuilding traffic-AQI regression model for 2014...")
                         
                         # Use only traffic-related variables
                         traffic_cols = ['traffic_count']
-                        if 'entry_count' in merged_df.columns:
-                            traffic_cols.append('entry_count')
                         
                         # Prepare model dataframe
                         model_df = merged_df[['AQI'] + traffic_cols].dropna()
