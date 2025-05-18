@@ -2,8 +2,8 @@
 
 # Location coordinates with descriptive names
 LOCATIONS = {
-    "H.C. Andersens Boulevard": (55.6761, 12.5683),  # High Traffic Urban Center
-    "Nørrebro Residential Area": (55.6938, 12.5452),  # Medium Density Mixed Use
+    "Torvegade": (55.6716, 12.5929),  # High Traffic Urban Center
+    "Hvidovre Residential Area": (55.6406, 12.4846),  # Medium Density Mixed Use
     "Amager Strandpark": (55.6580, 12.6478)  # Coastal Recreational Area
 }
 
@@ -35,7 +35,8 @@ WEATHER_VARIABLES = [
     "relative_humidity_2m",
     "precipitation",
     "windspeed_10m",
-    "pressure_msl"
+    "pressure_msl",
+    "winddirection_10m"
 ]
 
 # Traffic data settings

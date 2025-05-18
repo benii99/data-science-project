@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import os
-from math import radians, cos, sin, asin, sqrt
 
 def load_traffic_data(file_path):
     """
@@ -20,12 +19,12 @@ def load_traffic_data(file_path):
         return None
     
     # Read the Excel file
-    print(f"Loading traffic data from {file_path}...")
+    # OUTPUT REDUCTION: print(f"Loading traffic data from {file_path}...")
     df = pd.read_excel(file_path)
     
     # Print the initial shape and columns for verification
-    print(f"Raw traffic data shape: {df.shape}")
-    print(f"Traffic data columns: {df.columns.tolist()[:10]}...")
+    # OUTPUT REDUCTION: print(f"Raw traffic data shape: {df.shape}")
+    # OUTPUT REDUCTION: print(f"Traffic data columns: {df.columns.tolist()[:10]}...")
     
     return df
 
@@ -74,7 +73,7 @@ def transform_traffic_data(df):
         try:
             # Try alternative parsing
             df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce')
-            print("Date format was different than expected, but conversion succeeded.")
+            # OUTPUT REDUCTION: print("Date format was different than expected, but conversion succeeded.")
         except:
             print("Warning: Could not parse date column. Please check the format.")
     
@@ -85,7 +84,7 @@ def transform_traffic_data(df):
     hour_columns = [col for col in df_clean.columns if '-' in str(col) and ':' in str(col)]
     
     if not hour_columns:
-        print("Warning: No hour columns detected. Looking for numbered columns...")
+        # OUTPUT REDUCTION: print("Warning: No hour columns detected. Looking for numbered columns...")
         # Try to find columns that might represent hours (0-23)
         hour_columns = [col for col in df_clean.columns if str(col).isdigit() and int(col) >= 0 and int(col) <= 23]
     
@@ -125,7 +124,7 @@ def transform_traffic_data(df):
     # Drop rows where datetime creation failed
     invalid_rows = df_tidy['datetime'].isna().sum()
     if invalid_rows > 0:
-        print(f"Warning: Dropping {invalid_rows} rows with invalid datetime values")
+        # OUTPUT REDUCTION: print(f"Warning: Dropping {invalid_rows} rows with invalid datetime values")
         df_tidy = df_tidy.dropna(subset=['datetime'])
     
     # Sort by location and time
@@ -134,11 +133,12 @@ def transform_traffic_data(df):
     # Check for missing values
     na_count = df_tidy['traffic_count'].isna().sum()
     if na_count > 0:
-        print(f"Warning: Found {na_count} missing traffic count values")
+        # OUTPUT REDUCTION: print(f"Warning: Found {na_count} missing traffic count values")
+        pass
     
-    print(f"Transformed traffic data shape: {df_tidy.shape}")
-    print(f"Date range: {df_tidy['date'].min()} to {df_tidy['date'].max()}")
-    print(f"Number of unique locations: {df_tidy['road_name'].nunique()}")
+    # OUTPUT REDUCTION: print(f"Transformed traffic data shape: {df_tidy.shape}")
+    # OUTPUT REDUCTION: print(f"Date range: {df_tidy['date'].min()} to {df_tidy['date'].max()}")
+    # OUTPUT REDUCTION: print(f"Number of unique locations: {df_tidy['road_name'].nunique()}")
     
     return df_tidy
 
@@ -179,8 +179,8 @@ def aggregate_hourly_traffic(df_tidy):
         on=['datetime', 'road_name']
     )
     
-    print(f"Aggregated traffic data shape: {aggregated.shape}")
-    print(f"Average number of entries per hour: {aggregated['entry_count'].mean():.2f}")
+    # OUTPUT REDUCTION: print(f"Aggregated traffic data shape: {aggregated.shape}")
+    # OUTPUT REDUCTION: print(f"Average number of entries per hour: {aggregated['entry_count'].mean():.2f}")
     
     return aggregated
 
@@ -211,9 +211,10 @@ def convert_coordinates(df):
                 df.at[idx, 'longitude'] = lon
                 df.at[idx, 'latitude'] = lat
             except Exception as e:
-                print(f"Error converting coordinates for row {idx}: {e}")
+                # OUTPUT REDUCTION: print(f"Error converting coordinates for row {idx}: {e}")
+                pass
     except ImportError:
-        print("pyproj not available, using approximate conversion...")
+        # OUTPUT REDUCTION: print("pyproj not available, using approximate conversion...")
         # Simple approximation for Denmark (not precise but functional)
         # These values are specific to UTM zone 32N and only work approximately in Denmark
         for idx, row in df.iterrows():
@@ -224,85 +225,10 @@ def convert_coordinates(df):
                 df.at[idx, 'longitude'] = lon
                 df.at[idx, 'latitude'] = lat
             except Exception as e:
-                print(f"Error approximating coordinates for row {idx}: {e}")
+                # OUTPUT REDUCTION: print(f"Error approximating coordinates for row {idx}: {e}")
+                pass
     
     return df
-
-def haversine(lat1, lon1, lat2, lon2):
-    """
-    Calculate the great-circle distance in kilometers between two points 
-    on the earth (specified in decimal degrees).
-    """
-    # Convert decimal degrees to radians
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-    
-    # Haversine formula
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a))
-    # Radius of earth in kilometers is 6371
-    km = 6371 * c
-    return km
-
-def get_available_locations(df_tidy):
-    """
-    Get a list of unique locations in the traffic dataset with their coordinates.
-    
-    Parameters:
-    df_tidy: Cleaned traffic DataFrame
-    
-    Returns:
-    Dictionary of location names and their coordinates
-    """
-    locations = {}
-    
-    # Group by road name and get coordinates
-    for name, group in df_tidy.groupby('road_name'):
-        # Get the first row's coordinates (they should be the same for the same road)
-        lat = group['latitude'].iloc[0]
-        lon = group['longitude'].iloc[0]
-        locations[name] = (lat, lon)
-        
-    return locations
-
-def find_nearest_location(df_tidy, target_lat, target_lon):
-    """
-    Find the location in the dataset closest to the given coordinates.
-    
-    Parameters:
-    df_tidy: Cleaned traffic DataFrame
-    target_lat, target_lon: Target coordinates to match
-    
-    Returns:
-    Name of the closest location and its distance in km
-    """
-    locations = get_available_locations(df_tidy)
-    
-    distances = {}
-    for name, (lat, lon) in locations.items():
-        distance = haversine(target_lat, lon1=target_lon, lat2=lat, lon2=lon)
-        distances[name] = distance
-    
-    # Find the minimum distance
-    closest = min(distances, key=distances.get)
-    return closest, distances[closest]
-
-def find_location_near_hcab(df_tidy, hcab_lat=55.6761, hcab_lon=12.5683):
-    """
-    Find the traffic measurement location closest to H.C. Andersens Boulevard.
-    
-    Parameters:
-    df_tidy: Cleaned traffic DataFrame
-    hcab_lat, hcab_lon: Coordinates of H.C. Andersens Boulevard
-    
-    Returns:
-    Name of the closest location and DataFrame filtered for that location
-    """
-    closest_name, distance = find_nearest_location(df_tidy, hcab_lat, hcab_lon)
-    print(f"Closest location to H.C. Andersens Boulevard is '{closest_name}' at {distance:.2f} km distance")
-    
-    return closest_name, filter_traffic_by_location(df_tidy, closest_name)
 
 def filter_traffic_by_location(df_tidy, location_name):
     """
@@ -316,7 +242,7 @@ def filter_traffic_by_location(df_tidy, location_name):
     DataFrame with traffic data for the specified location
     """
     filtered_df = df_tidy[df_tidy['road_name'] == location_name]
-    print(f"Filtered to {len(filtered_df)} records for location '{location_name}'")
+    # OUTPUT REDUCTION: print(f"Filtered to {len(filtered_df)} records for location '{location_name}'")
     return filtered_df
 
 def get_traffic_for_date_range(df_tidy, location_name, start_date, end_date):
@@ -344,5 +270,5 @@ def get_traffic_for_date_range(df_tidy, location_name, start_date, end_date):
         (location_data['datetime'] <= end_date)
     ]
     
-    print(f"Retrieved {len(date_filtered)} records for '{location_name}' from {start_date.date()} to {end_date.date()}")
+    # OUTPUT REDUCTION: print(f"Retrieved {len(date_filtered)} records for '{location_name}' from {start_date.date()} to {end_date.date()}")
     return date_filtered
