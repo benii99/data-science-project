@@ -3,6 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.dates as mdates
+import os
+from config import LOCATIONS
+import geopandas as gpd
+from shapely.geometry import Point
 
 def spatial_comparison_analysis(processed_dfs, output_dir="figures/"):
     """
@@ -13,7 +17,6 @@ def spatial_comparison_analysis(processed_dfs, output_dir="figures/"):
     output_dir: Directory to save output figures
     """
     # Create output directory if it doesn't exist
-    import os
     os.makedirs(output_dir, exist_ok=True)
     
     # 1. Prepare data for comparison
@@ -27,86 +30,16 @@ def spatial_comparison_analysis(processed_dfs, output_dir="figures/"):
     combined_df = pd.DataFrame(location_series)
     combined_df = combined_df.dropna()
     
-    # 2. Distribution comparison
-    plt.figure(figsize=(12, 6))
-    sns.violinplot(data=combined_df, palette="Set3")
-    plt.title('AQI Distribution Comparison Across Locations')
-    plt.ylabel('AQI Value')
-    plt.xlabel('Location')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/location_aqi_distribution.png", dpi=300)
-    
-    # 3. Time series comparison
-    plt.figure(figsize=(14, 8))
-    for location, series in location_series.items():
-        plt.plot(series, label=location, alpha=0.7)
-    
-    plt.title('AQI Time Series Comparison Across Locations')
-    plt.xlabel('Date')
-    plt.ylabel('AQI Value')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    # Format x-axis to show months
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-    plt.gca().xaxis.set_major_locator(mdates.MonthLocator())
-    plt.xticks(rotation=45)
-    
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/location_time_series_comparison.png", dpi=300)
-    
-    # 4. Correlation analysis
+    # 2. Correlation analysis
     correlation = combined_df.corr()
     plt.figure(figsize=(10, 8))
     sns.heatmap(correlation, annot=True, cmap='coolwarm', vmin=-1, vmax=1, fmt='.2f')
     plt.title('Correlation Between Locations')
     plt.tight_layout()
     plt.savefig(f"{output_dir}/location_correlation.png", dpi=300)
+    plt.close()
     
-    # 5. Cross-correlation analysis with lags
-    max_lags = 24  # 24 hours lag
-    lags = range(-max_lags, max_lags + 1)
-    locations = list(location_series.keys())
-    n_locations = len(locations)
-    
-    # Create a grid of cross-correlation plots
-    fig, axes = plt.subplots(n_locations, n_locations, figsize=(15, 15), sharex=True, sharey=True)
-    
-    for i, loc1 in enumerate(locations):
-        for j, loc2 in enumerate(locations):
-            # Calculate cross-correlation
-            s1 = location_series[loc1].values
-            s2 = location_series[loc2].values
-            
-            # Ensure series have the same length
-            min_len = min(len(s1), len(s2))
-            s1 = s1[:min_len]
-            s2 = s2[:min_len]
-            
-            # Calculate cross-correlation
-            xcorr = [np.corrcoef(s1[max(0, -k):min(min_len, min_len-k)], 
-                                s2[max(0, k):min(min_len, min_len+k)])[0, 1] 
-                    for k in lags]
-            
-            # Plot cross-correlation
-            axes[i, j].plot(lags, xcorr)
-            axes[i, j].axvline(x=0, color='r', linestyle='--', alpha=0.3)
-            axes[i, j].set_title(f'{loc1} vs {loc2}', fontsize=10)
-            
-            # Add grid
-            axes[i, j].grid(True, alpha=0.3)
-            
-            # Only add x and y labels for outer plots
-            if i == n_locations - 1:
-                axes[i, j].set_xlabel('Lag (hours)')
-            if j == 0:
-                axes[i, j].set_ylabel('Correlation')
-    
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/location_cross_correlation.png", dpi=300)
-    
-    # 6. Compare daily patterns between locations
+    # 3. Compare daily patterns between locations
     daily_patterns = {}
     for location, df in processed_dfs.items():
         hourly_avg = df.groupby(df['time'].dt.hour)['AQI'].mean()
@@ -123,5 +56,103 @@ def spatial_comparison_analysis(processed_dfs, output_dir="figures/"):
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{output_dir}/location_daily_patterns.png", dpi=300)
+    plt.close()
+    
+    # 4. Create comparison table of key metrics across locations
+    metrics = []
+    for location, df in processed_dfs.items():
+        metrics.append({
+            'Location': location,
+            'Mean AQI': df['AQI'].mean(),
+            'Median AQI': df['AQI'].median(),
+            'Max AQI': df['AQI'].max(),
+            'Min AQI': df['AQI'].min(),
+            'Std Dev': df['AQI'].std(),
+            'Dominant Pollutant': df['Dominant_Pollutant'].mode()[0] if 'Dominant_Pollutant' in df.columns else 'N/A'
+        })
+    
+    metrics_df = pd.DataFrame(metrics)
+    metrics_df = metrics_df.set_index('Location')
+    metrics_df.to_csv(f"{output_dir}/location_metrics_comparison.csv")
+    print("Saved location metrics comparison table.")
+    
+    # 5. Map visualization of locations with color-coded metrics
+    try:
+        # Create points from coordinates
+        geometry = [Point(lon, lat) for location, (lat, lon) in LOCATIONS.items()]
+        
+        # Create GeoDataFrame
+        gdf = gpd.GeoDataFrame(
+            {
+                'Location': list(LOCATIONS.keys()),
+                'Mean AQI': [metrics_df.loc[loc, 'Mean AQI'] if loc in metrics_df.index else np.nan 
+                            for loc in LOCATIONS.keys()]
+            },
+            geometry=geometry,
+            crs="EPSG:4326"
+        )
+        
+        # Try to get a Denmark/Copenhagen base map
+        try:
+            # Get the Denmark outline
+            world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+            denmark = world[world.name == 'Denmark']
+            
+            # Create the figure and axis
+            fig, ax = plt.subplots(figsize=(10, 10))
+            
+            # Plot Denmark in light gray
+            denmark.plot(ax=ax, color='lightgray')
+            
+            # Define Copenhagen bounding box (approximate)
+            lon_min, lon_max = 12.45, 12.70
+            lat_min, lat_max = 55.60, 55.75
+            
+            # Set plot limits to zoom on Copenhagen
+            ax.set_xlim(lon_min, lon_max)
+            ax.set_ylim(lat_min, lat_max)
+            
+            # Plot locations with color based on Mean AQI
+            gdf.plot(ax=ax, column='Mean AQI', cmap='viridis', legend=True, 
+                    markersize=200, alpha=0.7)
+            
+            # Add location labels
+            for idx, row in gdf.iterrows():
+                ax.annotate(row['Location'], xy=(row.geometry.x, row.geometry.y),
+                           xytext=(3, 3), textcoords="offset points",
+                           fontsize=12, fontweight='bold')
+            
+            plt.title('Air Quality Monitoring Locations in Copenhagen\n(Color indicates Mean AQI)')
+            plt.xlabel('Longitude')
+            plt.ylabel('Latitude')
+            plt.tight_layout()
+            plt.savefig(f"{output_dir}/location_map.png", dpi=300)
+            plt.close()
+            
+        except Exception as e:
+            print(f"Could not create detailed map with base layer: {e}")
+            
+            # Fallback to simple scatter plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            gdf.plot(ax=ax, column='Mean AQI', cmap='viridis', legend=True,
+                   markersize=200)
+            
+            # Add location labels
+            for idx, row in gdf.iterrows():
+                ax.annotate(row['Location'], xy=(row.geometry.x, row.geometry.y),
+                           xytext=(3, 3), textcoords="offset points")
+            
+            plt.title('Air Quality Monitoring Locations\n(Color indicates Mean AQI)')
+            plt.xlabel('Longitude')
+            plt.ylabel('Latitude')
+            plt.tight_layout()
+            plt.savefig(f"{output_dir}/location_map.png", dpi=300)
+            plt.close()
+        
+        print("Saved location map visualization.")
+            
+    except Exception as e:
+        print(f"Error creating location map: {e}")
+        print("You may need to install geopandas: pip install geopandas")
     
     print("Completed spatial comparison analysis")
