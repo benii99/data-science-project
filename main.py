@@ -26,12 +26,11 @@ from models.lagged_analysis import perform_lagged_analysis
 from models.weather_correlation_and_mlr import correlation_analysis, multiple_linear_regression
 from models.temporal_analysis import temporal_pattern_analysis
 from models.spatial_analysis import spatial_comparison_analysis
-from models.sarima_analysis import sarima_modeling
 from models.pollutant_weather_analysis import analyze_individual_pollutants
 from models.xgboost_model import xgboost_analysis
+from models.random_forest import random_forest_analysis, compare_pollutant_rf_models
 
 # ----- Future model imports (currently commented) -----
-# from models.random_forest import random_forest_analysis  # To be implemented
 # from models.prophet_forecast import prophet_forecast  # To be implemented
 # from models.lstm_model import lstm_analysis  # To be implemented
 
@@ -161,6 +160,7 @@ def compare_pollutant_models(merged_df, pollutant_list, include_traffic=True, hi
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{output_dir}/{period}_r2_comparison.png", dpi=300)
+    plt.close()
     
     return results_df
 
@@ -363,15 +363,6 @@ def main():
             print(f"\nLagged model performance metrics:")
             print(f"RMSE: {rmse:.2f}, R²: {r2:.4f}")
     
-    # Perform SARIMA modeling
-    print("\nPerforming SARIMA modeling and forecasting...")
-    sarima_modeling(processed_dfs)
-    
-    # Prophet Forecasting placeholder
-    print("\nProphet forecasting model (placeholder)...")
-    # TODO: Implement Prophet forecasting
-    # prophet_results = prophet_forecast(merged_dfs[primary_location], target_col='AQI')
-    
     # =============================================================================
     # SECTION 5: SPATIAL ANALYSIS
     # =============================================================================
@@ -419,13 +410,6 @@ def main():
         print(f"\nWARNING: Only {len(merged_dfs[primary_location]) if primary_location in merged_dfs else 0} data points available.")
         print("Insufficient data for reliable statistical analysis.")
     
-    # Random Forest placeholder
-    print("\nRandom Forest modeling (placeholder)...")
-    # TODO: Implement Random Forest modeling
-    # rf_results = random_forest_analysis(merged_dfs[primary_location], 
-    #                                   target_col='AQI',
-    #                                   output_dir="figures/advanced_models")
-    
     # XGBoost modeling for current data
     if primary_location in merged_dfs and len(merged_dfs[primary_location]) >= 100:
         print("\nPerforming XGBoost modeling for ozone with current data...")
@@ -450,7 +434,7 @@ def main():
         else:
             print("Ozone data not available for XGBoost modeling")
             
-        # NEW: Compare XGBoost models for all pollutants (current data)
+        # Compare XGBoost models for all pollutants (current data)
         print("\nComparing XGBoost models across all pollutants for current data...")
         current_comparison = compare_pollutant_models(
             merged_dfs[primary_location],
@@ -458,6 +442,39 @@ def main():
             include_traffic=False,  # No traffic data for current period
             historical=False,
             output_dir="figures/xgboost_comparison"
+        )
+        
+        # Random Forest modeling for current data
+        print("\nPerforming Random Forest modeling for ozone with current data...")
+        # Check if ozone is available in the dataset
+        if 'ozone' in merged_dfs[primary_location].columns:
+            current_rf_results = random_forest_analysis(
+                merged_dfs[primary_location],
+                target_col='ozone',
+                include_traffic=False,  # No traffic data for current period
+                tune_hyperparams=True,
+                output_dir="figures/random_forest_current"
+            )
+            
+            if current_rf_results is not None:
+                print(f"\nCurrent Data Random Forest Performance:")
+                print(f"R²: {current_rf_results['metrics']['test_r2']:.4f}")
+                print(f"RMSE: {current_rf_results['metrics']['test_rmse']:.2f}")
+                print("\nTop 3 influential features for ozone prediction:")
+                for i, (_, row) in enumerate(current_rf_results['feature_importance'].iterrows()):
+                    if i < 3:
+                        print(f"  {row['Feature']}: {row['Importance']:.4f}")
+        else:
+            print("Ozone data not available for Random Forest modeling")
+            
+        # Compare Random Forest models for all pollutants (current data)
+        print("\nComparing Random Forest models across all pollutants for current data...")
+        current_rf_comparison = compare_pollutant_rf_models(
+            merged_dfs[primary_location],
+            pollutant_list=POLLUTANTS,
+            include_traffic=False,  # No traffic data for current period
+            historical=False,
+            output_dir="figures/random_forest_comparison"
         )
     
     # LSTM Neural Network placeholder
@@ -678,7 +695,7 @@ def analyze_historical_2014_data():
                     else:
                         print("Ozone data not available in 2014 dataset for XGBoost modeling")
                     
-                    # NEW: Compare XGBoost models for all pollutants (historical 2014 data)
+                    # Compare XGBoost models for all pollutants (historical 2014 data)
                     print("\nComparing XGBoost models across all pollutants for 2014 data...")
                     historical_comparison = compare_pollutant_models(
                         merged_df,
@@ -686,6 +703,42 @@ def analyze_historical_2014_data():
                         include_traffic=True,  # Include traffic data for 2014
                         historical=True,
                         output_dir="figures/xgboost_comparison"
+                    )
+                    
+                    # Random Forest modeling for ozone using traffic AND weather data
+                    print("\nPerforming Random Forest modeling for ozone prediction with traffic and weather data...")
+                    if 'ozone' in merged_df.columns:
+                        # Collect weather and traffic features
+                        all_features = weather_cols + ['traffic_count']
+                            
+                        rf_results = random_forest_analysis(
+                            merged_df, 
+                            target_col='ozone',
+                            features=all_features,  # Explicitly specify both weather and traffic features
+                            include_traffic=True,   # Include traffic data as features
+                            tune_hyperparams=True,  # Tune model hyperparameters for best performance
+                            output_dir="figures/random_forest_2014"
+                        )
+
+                        if rf_results is not None:
+                            print(f"\nRandom Forest Model Performance Summary:")
+                            print(f"R² on test data: {rf_results['metrics']['test_r2']:.4f}")
+                            print(f"RMSE on test data: {rf_results['metrics']['test_rmse']:.2f}")
+                            print("\nTop influential features:")
+                            for i, (_, row) in enumerate(rf_results['feature_importance'].iterrows()):
+                                if i < 5:  # Show top 5 features
+                                    print(f"  {row['Feature']}: {row['Importance']:.4f}")
+                    else:
+                        print("Ozone data not available in 2014 dataset for Random Forest modeling")
+                    
+                    # Compare Random Forest models for all pollutants (historical 2014 data)
+                    print("\nComparing Random Forest models across all pollutants for 2014 data...")
+                    historical_rf_comparison = compare_pollutant_rf_models(
+                        merged_df,
+                        pollutant_list=POLLUTANTS,
+                        include_traffic=True,  # Include traffic data for 2014
+                        historical=True,
+                        output_dir="figures/random_forest_comparison"
                     )
                     
                     # Analyze relationship between 2014 traffic and AQI with traffic variables only
