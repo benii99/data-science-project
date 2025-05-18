@@ -1,7 +1,7 @@
 import numpy as np
 from config import NO2_CONVERSION_FACTOR, SO2_CONVERSION_FACTOR, CO_CONVERSION_FACTOR, O3_CONVERSION_FACTOR
 from aqi_breakpoints import (PM25_BREAKPOINTS, PM10_BREAKPOINTS, NO2_BREAKPOINTS, 
-                           CO_BREAKPOINTS, SO2_BREAKPOINTS, O3_BREAKPOINTS)
+                           CO_BREAKPOINTS, SO2_BREAKPOINTS, O3_BREAKPOINTS, O3_1H_BREAKPOINTS)
 
 def calc_aqi(Cp, BPl, BPh, Il, Ih):
     """
@@ -25,11 +25,18 @@ def find_breakpoint(value, breakpoints):
     for (BPl, BPh, Il, Ih) in breakpoints:
         if BPl <= value <= BPh:
             return (BPl, BPh, Il, Ih)
+    
+    # If value exceeds the highest breakpoint, use the highest breakpoint
+    if value > breakpoints[-1][1]:
+        return breakpoints[-1]
+    
     return None
 
-def pollutant_aqi(pollutant, value):
+
+def pollutant_aqi(pollutant, value, is_1h_ozone=False):
     """Calculate AQI for a specific pollutant given its concentration value."""
-    if value is None or np.isnan(value):
+    # Handle missing, null or negative values
+    if value is None or np.isnan(value) or value < 0:
         return None
         
     if pollutant == 'pm2_5':
@@ -61,7 +68,10 @@ def pollutant_aqi(pollutant, value):
     elif pollutant == 'ozone':
         # Convert μg/m³ to ppm
         ppm = value / O3_CONVERSION_FACTOR
-        bp = find_breakpoint(ppm, O3_BREAKPOINTS)
+        if is_1h_ozone:
+            bp = find_breakpoint(ppm, O3_1H_BREAKPOINTS)
+        else:
+            bp = find_breakpoint(ppm, O3_BREAKPOINTS)
         if bp:
             return calc_aqi(ppm, *bp)
     return None

@@ -2,8 +2,8 @@
 
 # Location coordinates with descriptive names
 LOCATIONS = {
-    "H.C. Andersens Boulevard": (55.6761, 12.5683),  # High Traffic Urban Center
-    "Nørrebro Residential Area": (55.6938, 12.5452),  # Medium Density Mixed Use
+    "Torvegade": (55.6716, 12.5929),  # High Traffic Urban Center
+    "Hvidovre Residential Area": (55.6406, 12.4846),  # Medium Density Mixed Use
     "Amager Strandpark": (55.6580, 12.6478)  # Coastal Recreational Area
 }
 
@@ -24,7 +24,7 @@ MIN_HOURS_8H = 6    # Minimum hours for 8-hour average (75%)
 NO2_CONVERSION_FACTOR = 1.88  # 1 ppb = 1.88 μg/m³
 SO2_CONVERSION_FACTOR = 2.62  # 1 ppb = 2.62 μg/m³
 CO_CONVERSION_FACTOR = 1145   # 1 ppm = 1145 μg/m³
-O3_CONVERSION_FACTOR = 2000   # 1 ppm = 2000 μg/m³
+O3_CONVERSION_FACTOR = 1960   # 1 ppm = 2000 μg/m³
 
 # Weather API URL
 WEATHER_API_URL = "https://archive-api.open-meteo.com/v1/archive"
@@ -35,5 +35,10 @@ WEATHER_VARIABLES = [
     "relative_humidity_2m",
     "precipitation",
     "windspeed_10m",
-    "pressure_msl"
+    "pressure_msl",
+    "winddirection_10m"
 ]
+
+# Traffic data settings
+TRAFFIC_DATA_FILE = "traffic_data_2014.xlsx"  
+TRAFFIC_YEAR = 2014  

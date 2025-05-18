@@ -1,144 +1,112 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
-from statsmodels.tsa.seasonal import STL
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 import matplotlib.dates as mdates
+import pandas as pd
+import os
 
 def temporal_pattern_analysis(processed_dfs, output_dir="figures/"):
     """
     Perform temporal pattern analysis on air quality data.
+    Creates ONE multi-panel figure showing daily/weekly/seasonal patterns
+    focused on primary location (Torvegade) and AQI + ozone + nitrogen_dioxide.
     
     Parameters:
     processed_dfs: Dictionary of location names and processed DataFrames
     output_dir: Directory to save output figures
     """
     # Create output directory if it doesn't exist
-    import os
     os.makedirs(output_dir, exist_ok=True)
     
-    for location, df in processed_dfs.items():
-        print(f"Performing temporal pattern analysis for {location}...")
-        
-        # Ensure data is sorted by time
-        df = df.sort_values('time')
-        df = df.set_index('time')
-        
-        # Get AQI time series with no missing values
-        aqi_series = df['AQI'].dropna()
-        
-        # 1. Time Series Decomposition using STL
-        stl = STL(aqi_series, seasonal=25, period=24, robust=True)
-        result = stl.fit()
-        
-        # Plot STL Decomposition
-        fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
-        axes[0].plot(result.observed)
-        axes[0].set_ylabel('Observed')
-        axes[0].set_title(f'STL Decomposition of AQI for {location}')
-        
-        axes[1].plot(result.trend)
-        axes[1].set_ylabel('Trend')
-        
-        axes[2].plot(result.seasonal)
-        axes[2].set_ylabel('Daily\nSeasonality')
-        
-        axes[3].plot(result.resid)
-        axes[3].set_ylabel('Residuals')
-        
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/{location.replace(' ', '_')}_stl_decomposition.png", dpi=300)
-        
-        # 2. Daily and Weekly Patterns
-        # Extract hour of day and day of week
-        df_hourly = df.reset_index()
-        df_hourly['hour'] = df_hourly['time'].dt.hour
-        df_hourly['day_of_week'] = df_hourly['time'].dt.dayofweek
-        df_hourly['day_name'] = df_hourly['time'].dt.day_name()
-        
-        # Heatmap of hour vs day of week
-        pivot_table = df_hourly.pivot_table(
-            values='AQI', 
-            index='hour',
-            columns='day_name', 
-            aggfunc='mean'
-        )
-        
-        # Reorder days of week
-        days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        pivot_table = pivot_table[days_order]
-        
-        plt.figure(figsize=(12, 8))
-        sns.heatmap(pivot_table, cmap='YlOrRd', annot=True, fmt='.1f')
-        plt.title(f'Average AQI by Hour and Day of Week - {location}')
-        plt.ylabel('Hour of Day')
-        plt.xlabel('Day of Week')
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/{location.replace(' ', '_')}_hourly_weekly_heatmap.png", dpi=300)
-        
-        # 3. Monthly and Seasonal Patterns
-        df_monthly = df.reset_index()
-        df_monthly['month'] = df_monthly['time'].dt.month
-        df_monthly['month_name'] = df_monthly['time'].dt.month_name()
-        
-        # Monthly boxplots
-        plt.figure(figsize=(14, 6))
-        months_order = ['January', 'February', 'March', 'April', 'May', 'June', 
-                         'July', 'August', 'September', 'October', 'November', 'December']
-        
-        # Filter to keep only month names that exist in the data
-        available_months = df_monthly['month_name'].unique()
-        ordered_months = [m for m in months_order if m in available_months]
-        
-        # Create boxplot with available months
-        ax = sns.boxplot(x='month_name', y='AQI', data=df_monthly, 
-                         order=ordered_months, palette='viridis')
-        plt.title(f'Monthly Distribution of AQI - {location}')
-        plt.xlabel('Month')
-        plt.ylabel('AQI Value')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/{location.replace(' ', '_')}_monthly_boxplot.png", dpi=300)
-        
-        # 4. Autocorrelation Analysis
-        fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-        
-        # ACF for up to 7 days (7*24 hours) with 95% confidence intervals
-        plot_acf(aqi_series, lags=7*24, ax=axes[0], alpha=0.05)
-        axes[0].set_title(f'Autocorrelation Function (ACF) - {location}')
-        axes[0].set_xlabel('Lag (hours)')
-        
-        # PACF
-        plot_pacf(aqi_series, lags=7*24, ax=axes[1], alpha=0.05)
-        axes[1].set_title(f'Partial Autocorrelation Function (PACF) - {location}')
-        axes[1].set_xlabel('Lag (hours)')
-        
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/{location.replace(' ', '_')}_acf_pacf.png", dpi=300)
-        
-        # 5. Rolling statistics
-        rolling_window = 24*7  # One week
-        fig, ax = plt.subplots(figsize=(14, 6))
-        
-        # Calculate rolling mean and standard deviation
-        rolling_mean = aqi_series.rolling(window=rolling_window).mean()
-        rolling_std = aqi_series.rolling(window=rolling_window).std()
-        
-        # Plot the rolling statistics
-        ax.plot(aqi_series, alpha=0.5, label='Original Data')
-        ax.plot(rolling_mean, linewidth=2, label=f'{rolling_window}-hour Rolling Mean')
-        ax.plot(rolling_mean + 2*rolling_std, linestyle='--', label='Upper Band (+2σ)')
-        ax.plot(rolling_mean - 2*rolling_std, linestyle='--', label='Lower Band (-2σ)')
-        
-        # Format x-axis to show months
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-        ax.xaxis.set_major_locator(mdates.MonthLocator())
-        
-        ax.set_title(f'Weekly Rolling Statistics of AQI - {location}')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('AQI Value')
-        ax.legend()
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/{location.replace(' ', '_')}_rolling_stats.png", dpi=300)
-        
-        print(f"Completed temporal analysis for {location}")
+    # Primary location to focus on
+    primary_location = "Torvegade"
+    
+    if primary_location not in processed_dfs:
+        print(f"Error: {primary_location} not found in processed data")
+        return
+    
+    print(f"Performing temporal pattern analysis for {primary_location}...")
+    
+    # Get data for the primary location
+    df = processed_dfs[primary_location].copy()
+    
+    # Check if required columns exist
+    required_columns = ['time', 'AQI', 'ozone', 'nitrogen_dioxide']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    if missing_columns:
+        print(f"Warning: Missing columns: {', '.join(missing_columns)}")
+        # Keep only available columns
+        available_columns = [col for col in required_columns if col in df.columns]
+        if 'time' not in available_columns:
+            print("Error: 'time' column is required")
+            return
+    else:
+        available_columns = required_columns
+    
+    # Filter to keep only necessary columns
+    df = df[available_columns]
+    
+    # Ensure time is datetime and sort
+    df['time'] = pd.to_datetime(df['time'])
+    df = df.sort_values('time')
+    
+    # Create one multi-panel figure with 3 subplots
+    fig, axes = plt.subplots(3, 1, figsize=(14, 16))
+    
+    # 1. Daily Patterns (by hour of day)
+    df['hour'] = df['time'].dt.hour
+    daily_patterns = df.groupby('hour').mean(numeric_only=True)
+    
+    # Plot daily patterns for each available pollutant/AQI
+    for col in [col for col in ['AQI', 'ozone', 'nitrogen_dioxide'] if col in df.columns]:
+        axes[0].plot(daily_patterns.index, daily_patterns[col], marker='o', label=col)
+    
+    axes[0].set_title(f'Daily Patterns (by Hour) - {primary_location}')
+    axes[0].set_xlabel('Hour of Day')
+    axes[0].set_ylabel('Value')
+    axes[0].set_xticks(range(0, 24, 2))
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    
+    # 2. Weekly Patterns (by day of week)
+    df['day_of_week'] = df['time'].dt.dayofweek
+    weekly_patterns = df.groupby('day_of_week').mean(numeric_only=True)
+    
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    # Plot weekly patterns for each available pollutant/AQI
+    for col in [col for col in ['AQI', 'ozone', 'nitrogen_dioxide'] if col in df.columns]:
+        axes[1].plot(range(len(days)), weekly_patterns[col], marker='o', label=col)
+    
+    axes[1].set_title(f'Weekly Patterns (by Day) - {primary_location}')
+    axes[1].set_xlabel('Day of Week')
+    axes[1].set_ylabel('Value')
+    axes[1].set_xticks(range(len(days)))
+    axes[1].set_xticklabels(days)
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    
+    # 3. Monthly/Seasonal Patterns
+    df['month'] = df['time'].dt.month
+    monthly_patterns = df.groupby('month').mean(numeric_only=True)
+    
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    # Plot monthly patterns for each available pollutant/AQI
+    for col in [col for col in ['AQI', 'ozone', 'nitrogen_dioxide'] if col in df.columns]:
+        axes[2].plot(range(1, len(months)+1), monthly_patterns[col], marker='o', label=col)
+    
+    axes[2].set_title(f'Monthly/Seasonal Patterns - {primary_location}')
+    axes[2].set_xlabel('Month')
+    axes[2].set_ylabel('Value')
+    axes[2].set_xticks(range(1, len(months)+1))
+    axes[2].set_xticklabels(months)
+    axes[2].legend()
+    axes[2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    output_file = f"{output_dir}/{primary_location.replace(' ', '_')}_temporal_patterns_combined.png"
+    plt.savefig(output_file, dpi=300)
+    plt.close()
+    
+    print(f"Saved multi-panel temporal pattern figure to {output_file}")

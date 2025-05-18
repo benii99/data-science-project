@@ -31,7 +31,7 @@ def fetch_air_quality_data(latitude, longitude, pollutants, start_date, end_date
     
     return df
 
-def get_historical_data(locations, pollutants, days=None):
+def get_historical_data(locations, pollutants, days=None, start_date=None, end_date=None):
     """
     Fetch historical air quality data for multiple locations.
     
@@ -39,15 +39,18 @@ def get_historical_data(locations, pollutants, days=None):
     locations: Dictionary of location names and coordinates
     pollutants: Comma-separated pollutant names
     days: Number of days of historical data to retrieve (defaults to config value)
+    start_date: Optional start date in YYYY-MM-DD format
+    end_date: Optional end date in YYYY-MM-DD format
     
     Returns:
     Dictionary of location names and corresponding DataFrames
     """
-    if days is None:
-        days = DEFAULT_HISTORY_DAYS
-        
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    if start_date is None or end_date is None:
+        if days is None:
+            days = DEFAULT_HISTORY_DAYS
+            
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     
     location_dfs = {}
     
