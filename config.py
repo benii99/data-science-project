@@ -24,7 +24,7 @@ MIN_HOURS_8H = 6    # Minimum hours for 8-hour average (75%)
 NO2_CONVERSION_FACTOR = 1.88  # 1 ppb = 1.88 μg/m³
 SO2_CONVERSION_FACTOR = 2.62  # 1 ppb = 2.62 μg/m³
 CO_CONVERSION_FACTOR = 1145   # 1 ppm = 1145 μg/m³
-O3_CONVERSION_FACTOR = 2000   # 1 ppm = 2000 μg/m³
+O3_CONVERSION_FACTOR = 1960   # 1 ppm = 2000 μg/m³
 
 # Weather API URL
 WEATHER_API_URL = "https://archive-api.open-meteo.com/v1/archive"

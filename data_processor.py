@@ -23,13 +23,15 @@ def calculate_rolling_averages(df):
     df['ozone_8h'] = df['ozone'].rolling(window=8, min_periods=MIN_HOURS_8H).mean()
     df['carbon_monoxide_8h'] = df['carbon_monoxide'].rolling(window=8, min_periods=MIN_HOURS_8H).mean()
     
-    # 1-hour values for NO2 and SO2 (already hourly)
+    # 1-hour values for NO2, SO2 and O3
+    df['ozone_1h'] = df['ozone']  # Added 1-hour ozone
     df['nitrogen_dioxide_1h'] = df['nitrogen_dioxide']
     df['sulphur_dioxide_1h'] = df['sulphur_dioxide']
     
     # Sort back to descending order for display
     df = df.sort_values(by="time", ascending=False)
     return df
+
 
 def calculate_aqi(df):
     """
@@ -72,11 +74,24 @@ def calculate_aqi(df):
             aqi = pollutant_aqi('sulphur_dioxide', row['sulphur_dioxide_1h'])
             if aqi is not None:
                 pollutant_aqis['SO2'] = aqi
-                
+        
+        # Calculate both 1-hour and 8-hour ozone AQI and use the higher value
+        o3_aqi_8h = None
+        o3_aqi_1h = None
+        
         if not pd.isna(row['ozone_8h']):
-            aqi = pollutant_aqi('ozone', row['ozone_8h'])
-            if aqi is not None:
-                pollutant_aqis['O3'] = aqi
+            o3_aqi_8h = pollutant_aqi('ozone', row['ozone_8h'])
+            
+        if not pd.isna(row['ozone_1h']):
+            o3_aqi_1h = pollutant_aqi('ozone', row['ozone_1h'], is_1h_ozone=True)
+            
+        # Use the higher of the two ozone AQI values
+        if o3_aqi_8h is not None and o3_aqi_1h is not None:
+            pollutant_aqis['O3'] = max(o3_aqi_8h, o3_aqi_1h)
+        elif o3_aqi_8h is not None:
+            pollutant_aqis['O3'] = o3_aqi_8h
+        elif o3_aqi_1h is not None:
+            pollutant_aqis['O3'] = o3_aqi_1h
         
         if pollutant_aqis:
             max_aqi = max(pollutant_aqis.values())
