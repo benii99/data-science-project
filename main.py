@@ -21,6 +21,7 @@ from traffic_data_loader import load_traffic_data, transform_traffic_data, filte
 
 # Analysis model imports
 from models.traffic_aqi_analysis import traffic_aqi_correlation_analysis
+from models.traffic_pollutant_analysis import traffic_pollutant_correlation_analysis
 from models.lagged_analysis import perform_lagged_analysis
 from models.weather_correlation_and_mlr import correlation_analysis, multiple_linear_regression
 from models.temporal_analysis import temporal_pattern_analysis
@@ -430,6 +431,10 @@ def analyze_historical_2014_data():
                     pearson_corr, pearson_p = correlation_results['pearson']
                     if not np.isnan(pearson_corr):
                         print(f"\nOverall Traffic-AQI Correlation: {pearson_corr:.4f} (p-value: {pearson_p:.4f})")
+                
+                # Perform traffic-pollutant correlation analysis
+                print("\nPerforming traffic-pollutant correlation analysis...")
+                pollutant_results = traffic_pollutant_correlation_analysis(merged_df, output_dir="figures/traffic_pollutants_2014")
                 
                 # Analyze relationship between 2014 traffic and AQI with traffic variables only
                 if len(merged_df) >= 100:
